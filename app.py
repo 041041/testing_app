@@ -17,3 +17,4 @@ if uploaded_file is not None:
     # Show summary statistics
     st.write("🔹 Summary Statistics")
     st.write(df.describe())
+
