@@ -8,7 +8,7 @@ uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
     # Read Excel into pandas dataframe
-    df = pd.read_excel(uploaded_file)
+    df = pd.read_excel(uploaded_file, engine="openpyxl")
 
     # Show uploaded data
     st.write("✅ File Uploaded Successfully!")
@@ -17,4 +17,5 @@ if uploaded_file is not None:
     # Show summary statistics
     st.write("🔹 Summary Statistics")
     st.write(df.describe())
+
 
