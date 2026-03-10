@@ -3,7 +3,7 @@ import pandas as pd
 
 st.title("📊 Excel File Uploader")
 
-# Upload Excel file
+# Upload Excel test file
 uploaded_file = st.file_uploader("Upload your Excel file", type=["xlsx", "xls"])
 
 if uploaded_file is not None:
