@@ -1,0 +1,170 @@
+/*----------------------------------------------------------------------------------------
+ CDISC SAS Macro Module: util_chkvars.sas 
+ CDISC Algorithm Reference: 
+------------------------------------------------------------------------------------------
+
+Purpose: This is an utility macro to check for the existence
+         of variables in the input dataset. 
+	
+Assumptions: 
+	        
+Calls to: 
+	
+
+Inputs: 
+            
+Outputs:  
+	 g_vexist is a global macro variable that contains the list
+         of all variables that exist in the input dataset by default. 
+         It can be overwritten by macro variable passed in _varexist
+         parameter. Global macro variable g_vmiss contains the 
+         list of variables that do not exist in the input dataset. 
+         It can be overwritten by macro variable passed in _missvar
+         parameter. g_vmissany will have Y if any of the variables are 
+         missing in the input dataset otherwise N. It can be overwritten 
+         by macro variable passed in _missvar parameter followed by any
+         as the name of the macro variable. Two more parameters
+         will also be created g_vexist2 and g_vmiss2 which are 
+         similar to g_vexist and g_vmiss but will have / as 
+         separator. They can be overwritten by macro variable passed in 
+         _varexist and _missvar parameter followed by 2.
+
+References: 
+        
+
+Parameters : 
+            _dsnin    : Dataset with variables to test 
+            _varlist  : Space-separated list of variables to test
+            _varexist : Pass the macro variable to which the list of variables 
+                        present needs to be populated 
+            _missvar  : Pass the macro variable to which the list of missing 
+                        variables needs to be populated
+		
+Usage notes: The keyword parameters to this macro, _dsnin and _varlist
+             are required variables.
+             Example: If we have a dataset lb and we are checking for 
+             existence of usubjid sex race studyid variables. usubjid and
+             studyid are present in lb dataset and others are not.
+             1. %util_chkvars(_dsnin=lb, _varlist=usubjid sEx race studyid,
+                         _varexist=existvar, _missvar=missing) 
+                 creates 5 macro variables:
+                 existvar which contains USUBJID STUDYID
+                 existvar2 which contains /USUBJID/STUDYID/ 
+                 missing which contains SEX RACE
+                 missing2 which contains /SEX/RACE/
+                 missingany which contains Y
+                 All the variables in the above parameters will be in upper case 
+                 irrespective of the case of value passed into _varlist parameter.
+
+             2. %util_chkvars(_dsnin=lb, _varlist=usubjid sex race STuDYId)
+                creates 5 macro variables:
+                g_vexist which contains USUBJID STUDYID
+                g_vexist2 which contains /USUBJID/STUDYID/
+                g_vmiss which contains SEX RACE
+                g_vmiss2 which contains /SEX/RACE/
+                g_vmissany which contains Y
+                All the variables in the above parameters will be in upper case 
+                irrespective of the case of value passed into _varlist parameter.
+
+             3. %util_chkvars(_dsnin=lb, _varlist=usubjid studyid)
+                 creates 5 macro variables:
+                 g_vexist which contains USUBJID STUDYID
+                 g_vexist2 which contains /USUBJID/STUDYID/
+                 g_vmiss which contains 
+                 g_vmiss2 which contains 
+                 g_vmissany which contains N
+                 All the variables in the above parameters will be in upper case 
+                 irrespective of the case of value passed into _varlist parameter.	
+
+------------------------------------------------------------------------------------------
+Modification History
+------------------------------------------------------------------------------------------
+Revision 1.1  yagnas 2014/08/13 UIMS 90930 CR 90934
+	      Details: Modified PDS Code to add additional functionality.
+Revision 1.2  yagnas 2014/09/18 UIMS 90930 CR 90934
+              Details: Updated the condition as per Su-Ying/Santosh comments
+              when there are no values passed in _dsnin and _varlist parameters. Also, all 
+              the output parameters will now have values in Upper Case. 
+              Testing Comment Siddharth 06FEB2024
+-----------------------------------------------------------------------------------------*/
+
+%macro util_chkvars(_dsnin =      /* Data set with variables to test */,
+                    _varlist =    /* Space-separated list of variables to test */,
+                    _varexist = g_vexist /* Pass the macro variable to which the */
+                                         /* list of variables present need to be populated */,
+                    _missvar = g_vmiss /* Pass the macro variable to which the list */
+                                       /* of missing variables need to be populated */
+                   );
+
+%if %sysfunc(compress("&_varexist")) = "" %then %let _varexist = g_vexist;
+%if %sysfunc(compress("&_missvar")) = "" %then %let _missvar = g_vmiss;
+
+%global &_varexist &_varexist.2 &_missvar &_missvar.2 &_missvar.any utiloptions;
+%local localopt;
+
+%let localopt=%sysfunc(getoption(mprint)) 
+              %sysfunc(getoption(symbolgen)) 
+              %sysfunc(getoption(mlogic));
+
+options &utiloptions;
+
+%let &_varexist =;
+%let &_varexist.2 =;
+%let &_missvar =;
+%let &_missvar.2 =;
+%let &_missvar.any = N;
+  
+%if %sysfunc(compress("&_dsnin")) = "" or  %sysfunc(compress("&_varlist")) = ""
+    %then %goto quit;
+  
+%*-----------------------------------------------------------------------------;  
+%* Check if the variables in _varlist are present in dataset (_dsnin). Populate;  
+%* global macro variables                                                      ;
+%*-----------------------------------------------------------------------------;
+
+%local _dsid _cntr _column _existcnt _nonexistcnt;
+%let _existcnt = 0;
+%let _nonexistcnt = 0;
+  
+%let _dsid = %sysfunc(open(&_dsnin,i));
+%let _cntr = 1;
+
+%do %while (%qscan(&_varlist,&_cntr) ne );
+  %let _column = %qscan(&_varlist,&_cntr);
+  %*put checking var &_column in dataset &_dsid;
+  %if %sysfunc(varnum(&_dsid,&_column)) %then %do;
+      %let &_varexist = %upcase(&&&_varexist &_column);
+      %let &_varexist.2 = %upcase(&&&_varexist.2/&_column);
+      %let _existcnt = %eval(&_existcnt + 1);
+      %*put variable found.;
+  %end;
+  %else %do;
+      %let &_missvar = %upcase(&&&_missvar &_column);
+      %let &_missvar.2 = %upcase(&&&_missvar.2/&_column);
+      %let &_missvar.any = Y; 
+      %let _nonexistcnt = %eval(&_nonexistcnt + 1);           
+  %end;
+  %let _cntr = %eval(&_cntr + 1);  
+%end;
+
+%if %eval(&_existcnt) > 0 %then %do;
+  %let &_varexist.2 = %upcase(&&&_varexist.2/);
+%end;
+%if %eval(&_nonexistcnt) > 0 %then %do;
+  %let &_missvar.2 = %upcase(&&&_missvar.2/);
+%end;
+ 
+%let _dsid = %sysfunc(close(&_dsid));   
+  
+%quit: 
+ 
+options &localopt;
+
+%mend util_chkvars;
+
+
+
+
+
+
+
