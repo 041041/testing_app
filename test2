@@ -1,0 +1,84 @@
+/*----------------------------------------------------------------------------------------
+ CDISC SAS Macro Module: util_num_periods.sas 
+ CDISC Algorithm Reference: 
+------------------------------------------------------------------------------------------
+
+Purpose: 
+        To generate a global macro variable that indicates whether the study type is a
+        crossover or not.
+        To get treatment period counts from datvprot.adsl into global macro variable G_PRDCNT.
+
+Assumptions: 
+        Adsl dataset exists in folder pointed by datvprot libref.
+        Adsl dataset has atleast 1 TrxxSdt variable.
+        
+Calls to: 
+        -None-
+        
+Inputs: 
+        datavprot.adsl
+            
+Outputs:  
+        G_PRDCNT : Global macro variable with number of treatment periods in Adsl.
+        G_XOVERYN : Global macro variable to identify if study is parallel or crossover.
+
+References: 
+        Refer to below docs in Data Standards Code
+        <util_num_periods.sas of Programming Spec>
+
+Parameters: 
+        -None-
+
+Usage notes:  
+        Program would look for all TRxxSDT variables and count them to determine
+        the number of periods. 
+
+        If a study has 3 periods, then ADSL would have TR01SDT TR02SDT and TR03SDT.
+        Based on above scnenrio, G_PRDCNT=3 and G_XOVERYN=Y
+    
+        If a study has 1 periods, then ADSL would have TR01SDT.
+        Based on above scnenrio, G_PRDCNT=1 and G_XOVERYN=N
+
+------------------------------------------------------------------------------------------
+Modification History
+------------------------------------------------------------------------------------------
+Revision 1.1  mettus 14/Oct/2014 UIMS 92453 CR 92459
+              Details: Initial Creation 
+-----------------------------------------------------------------------------------------*/
+
+%macro util_num_periods(_dsn=datvprot.adsl);
+
+%Global G_PrdCnt G_Xoveryn;
+
+%Local localopt;
+
+%Let localopt = %SysFunc(GetOption(Mprint))
+                %SysFunc(GetOption(Symbolgen))     
+                %SysFunc(GetOption(Mlogic));
+
+Options NoMprint NoMlogic NoSymbolgen;
+
+Proc Contents Data=&_dsn Out=utilnumperiods(keep=Name) NoPrint;
+Run;
+
+Proc Sql NoPrint;
+  Select Count(distinct(Name)) into : G_PrdCnt
+  From utilnumperiods
+  Where upcase(Name) like "TR__SDT";
+Quit;
+
+%let G_PrdCnt=&G_PrdCnt;
+
+%If %eval(&G_PrdCnt)>1 %then %do;
+    %Let G_Xoveryn=Y;
+%End;
+%Else %do;
+    %Let G_Xoveryn=N;
+%End;
+
+%Put Total Number of Periods: &G_PrdCnt;
+%put Crossover Study: &G_Xoveryn;
+
+Options &localOpt;
+
+%mend util_num_periods;  
