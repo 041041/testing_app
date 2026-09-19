@@ -1,0 +1,785 @@
+/*----------------------------------------------------------------------------------------
+ CDISC SAS Macro Module: gen_tp_join_adsl.sas
+ CDISC Algorithm Reference: 
+------------------------------------------------------------------------------------------
+
+Purpose: 
+	Utility to create TRTA TRTP TRTAN TRTPN APERIOD APERIODC APHASE APERSDT APEREDT 
+        APERSTM APERETM APERSDTM APEREDTM APERDY APERSDY and APEREDY variables. 
+
+Assumptions: 
+	Treatment related variables exist in the input dataset.
+        If Time is being considered, both treatment time and analysis time 
+          should be present in the input dataset.
+        
+Calls to: 
+        %util_num_periods
+
+Inputs: 
+        Dataset after merge with ADSL.
+            
+Outputs:  
+	Utility creates variables TRTA, TRTP, APERIOD, APERIODC, APHASE, 
+        APERDY, APERSDY, APEREDY, APERSDT, APEREDT, APERSTM, APERETM, 
+        APERSDTM and APEREDTM variables. APERDY, APERSDY and APEREDY variables
+        will be created for only crossover study. APERSDY and APEREDY variables 
+        will be created only if start and end dates are passed in the respective
+        parameters.
+
+References: 
+        Refer to docs in Data Standards Code
+        <gen_tp_join_adsl Programming Spec>
+
+Parameters : 
+        _dsnin - Name of the input dataset             
+        _dsnout - Name of the output dataset           
+        _trtoption - Option to use or not use gap in between the analysis periods to 
+                     derive TRTA, TRTAN, TRTP and TRTPN variables. 
+                     Valid values are OPTION1 and OPTION2
+                     OPTION1 - Does not consider the gap between previous analysis 
+                               period end date and current analysis period start date
+                               in calculating TRTA, TRTAN, TRTP and TRTPN variables.
+                     OPTION2 - Considers the gap between previous analysis period 
+                               end date and current analysis period start date
+                               in calculating TRTA, TRTAN, TRTP and TRTPN variables.          
+         _dropvars - Variables to drop from the output dataset. 
+         _analstartdtvar - If an endpoint has both start date and end date then 
+                           analysis start date will be passed. If an endpoint has 
+                           only analysis date then the analysis date variable will 
+                           be passed.
+         _analstarttmvar - If an endpoint has both start time and end time then 
+                           analysis start time will be passed. If an endpoint has 
+                           only analysis time then the analysis time variable will 
+                           be passed. If time is not collected, the parameter is
+                           set to missing.
+         _analstartdtmvar - If an endpoint has start date-time (or) analysis date-time 
+                            variable already created in the input dataset, it can be 
+                            passed in this parameter. If set to missing and time 
+                            variable is passed in _analstarttmvar, then a temporary
+                            date-time variable will be created for analysis using
+                            the variables passed in _analstartdtvar and
+                            _analstarttmvar parameters  
+         _analenddtvar - If an endpoint has both start date and end date then 
+                         analysis end date will be passed. If an endpoint has 
+                         only analysis date then the parameter is set to 
+                         missing.
+         _analendtmvar - If an endpoint has both start time and end time then 
+                         analysis end time will be passed. If an endpoint has 
+                         only analysis time or if time is not collected, 
+                         the parameter is set to missing.
+         _analenddtmvar - If an endpoint has end datetime (or) analysis end datetime 
+                          variable already created in the input dataset, it can be 
+                          passed in this parameter. If set to missing and time 
+                          variable is passed in _analendtmvar, then a temporary
+                          datetime variable will be created for analysis using
+                          the variables passed in _analenddtvar and
+                          _analendtmvar parameters  
+
+        G_ADSL_PRE_LAG parameter is used to define the number of minutes to adjust to the
+        start of each period. It is defined in ad<xx>.txt file. Default is 0 minutes.
+ 
+Usage notes:
+
+The calculations for TRTA TRTP TRTAN TRTPN APHASE APERIOD APERIODC APERSDT APEREDT 
+APERSTM APERETM APERSDTM APEREDTM below are based on assumption that ADT is the 
+analysis variable. If user passes ASTDT/AENDT then ADT should be replaced with 
+ASTDT in the calculations below:
+ 
+TRTA TRTP TRTAN TRTPN APERIOD and APERIODC Calculation: User has two options to calculate 
+these variables. The option will be passed using the parameter _trtoption:
+
+  OPTION1: Does not consider the gap in between analysis periods in determining 
+           TRTA TRTP TRTAN TRTPN APERIOD APERIODC variables.
+    If AP[xx]SDT <= ADT <= AP[xx]EDT then: TRTP = TRT[xx]P, TRTPN = TRT[xx]PN,
+                                           TRTA = TRT[xx]A, TRTAN = TRT[xx]AN,
+                                           APERIOD = [xx] (ex: 1,2,3, etc),
+                                           APERIODC = "Period [xx]" (ex: Period 01, Period 02, etc)
+ 
+    If time is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date-time values. 
+    If only date is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date values.
+    [xx] has value of 1 to (number of periods) incremented by 1
+
+  OPTION2: This considers the gap in between analysis periods, before first period 
+           start date and last period end date in determining TRTA TRTP TRTAN 
+           TRTPN variables.
+    For Period 1: 
+        If ADT <= AP01EDT: TRTP = TRT01P, TRTPN = TRT01PN, TRTA = TRT01A, 
+                           TRTAN = TRT01AN, APERIOD = 1, APERIODC = "Period 01",
+    For Period 2 until last before period:
+        Else If AP[xx-1]EDT < ADT <= AP[xx]EDT: TRTP = TRT[xx]P, TRTPN = TRT[xx]PN, 
+                                                TRTA = TRT[xx]A, TRTAN = TRT[xx]AN,
+                                                APERIOD = [xx] (ex: 2,3, etc),
+                                                APERIODC = "Period [xx]" (ex: Period 02, etc)
+        where [xx] has value of 2 to (number of periods - 1) incremented by 1. 
+              [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.
+    For the last period:
+        Else if ADT > AP[xx-1]EDT: TRTP = TRT[xx]P, TRTPN = TRT[xx]PN, TRTA = TRT[xx]A, 
+                                   TRTAN = TRT[xx]AN, APERIOD = [xx] (ex: 2,3, etc),
+                                   APERIODC = "Period [xx]" (ex: Period 02, etc)
+        where [xx] is the last period. 
+              [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.
+  If time is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date-time values. 
+  If only date is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date values.
+
+APHASE Calculation:
+  For [xx] = 01
+    If ADT <= AP[xx]SDT: APHASE = "PRE-TREATMENT"
+    else If AP[xx]SDT < ADT <= AP[xx]EDT: APHASE = "TREATMENT [xx]"
+    If there is only 1 period then, if ADT > AP[xx]EDT: APHASE = "FOLLOW-UP"
+  For [xx] = 2 to (number of periods - 1) incremented by 1
+    If AP[xx-1]EDT < ADT <= AP[xx]SDT: APHASE = "OFFDRUG [xx-1]"
+    If AP[xx]SDT < ADT <= AP[xx]EDT: APHASE = "TREATMENT [xx]"
+       where [xx] has value of 2 to (number of periods - 1) incremented by 1. 
+             [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.
+  For [xx] having the value of last period
+    If AP[xx-1]EDT < ADT <= AP[xx]SDT: APHASE = "OFFDRUG [xx-1]"
+    Else If AP[xx]SDT < ADT <= AP[xx]EDT: APHASE = "TREATMENT [xx]"
+    Else if ADT > AP[xx]EDT: APHASE = "FOLLOW-UP"
+       where [xx] is the last period. 
+             [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.
+  If time is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date-time values. 
+  If only date is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date values.
+
+APERDY Calculation (only for endpoints with Analysis date and not start and end dates):
+  Analysis date variable is passed in _analstartdtvar parameter and Analysis time if
+  present is populated in  _analstarttmvar parameter.
+
+  For period 1 - Period subset condition: ADTM <= AP01EDTM
+    If ADT < AP01SDT then APERDY = ADT - AP01SDT
+    Else if ADT >= AP01SDT then APERDY = ADT - AP01SDT + 1
+    AP01SDT, ADT will be date values. AP01EDTM and ADTM
+    will be date-time values.
+
+  For periods other than last period - 
+    Period subset condition: AP[xx-1]EDTM < ADTM <=AP[xx]EDTM
+    If ADT < AP[xx]SDT then APERDY = ADT - AP[xx]SDT
+    Else if ADT >= AP[xx]SDT then APERDY = ADT - AP[xx]SDT + 1
+    where xx has value of 2 to (number of periods - 1) incremented by 1
+    AP[xx]SDT, AP[xx]EDT, ADT will be date values and AP[xx]SDTM, AP[xx]EDTM, ADTM
+    will be date-time values. [xx-1] is the period before [xx].
+
+  For last period - Period subset condition: ADTM > AP[xx-1]EDTM
+    If ADT < AP[xx]SDT then APERDY = ADT - AP[xx]SDT
+    Else if ADT >= AP[xx]SDT then APERDY = ADT - AP[xx]SDT + 1
+       where [xx] is the last period. 
+             [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.    
+    AP[xx]SDT and ADT will be date values and AP[xx-1]EDTM, ADTM
+    will be date-time values. [xx-1] is the period before [xx].
+APERSDY Calculation (For endpoints with Analysis start and end dates):
+  Analysis start date variable is passed in _analstartdtvar parameter. 
+
+  For period 1 - Period subset condition: ASTDTM <= AP01EDTM
+    If ASTDT < AP01SDT then APERSDY = ASTDT - AP01SDT
+    Else if ASTDT >= AP01SDT then APERSDY = ASTDT - AP01SDT + 1
+    AP01SDT, ASTDT will be date values. AP01EDTM and ASTDTM
+    will be date-time values.
+
+  For periods other than last period - 
+  Period subset condition: AP[xx-1]EDTM < ASTDTM <=AP[xx]EDTM
+    If ASTDT < AP[xx]SDT then APERSDY = ASTDT - AP[xx]SDT
+    Else if ASTDT >= AP[xx]SDT then APERSDY = ASTDT - AP[xx]SDT + 1
+    where xx has value of 2 to (number of periods - 1) incremented by 1
+    AP[xx]SDT, AP[xx]EDT, ASTDT will be date values and AP[xx]SDTM, AP[xx]EDTM 
+    and ASTDTM will be date-time values. [xx-1] is the period before [xx].
+
+  For last period - Period subset condition: ASTDTM > AP[xx-1]EDTM
+    If ASTDT < AP[xx]SDT then APERSDY = ASTDT - AP[xx]SDT
+    Else if ADT >= AP[xx]SDT then APERSDY = ASTDT - AP[xx]SDT + 1
+       where [xx] is the last period. 
+             [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.    
+    AP[xx]SDT and ASTDT will be date values and AP[xx-1]EDTM, ASTDTM
+    will be date-time values. [xx-1] is the period before [xx].
+APEREDY Calculation (For endpoints with Analysis start and end dates):
+  Analysis end date variable is passed in _analenddtvar parameter.
+
+  For period 1 - Period subset condition: AENDTM <= AP01EDTM
+    If AENDT < AP01SDT then APEREDY = AENDT - AP01SDT
+    Else if AENDT >= AP01SDT then APEREDY = AENDT - AP01SDT + 1
+    AP01SDT, AENDT will be date values. AP01EDTM and AENDTM
+    will be date-time values.
+
+  For other periods- Period subset condtion: AP[xx-1]EDT < AENDT <=AP[xx]EDT
+    If AENDT < AP[xx]SDT then APEREDY = AENDT - AP[xx]SDT
+    Else if AENDT >= AP[xx]SDT then APEREDY = AENDT - AP[xx]SDT + 1
+    where xx has value of 2 to (number of periods - 1) incremented by 1
+    AP[xx]SDT, AP[xx]EDT, AENDT will be date values and AP[xx]SDTM, AP[xx]EDTM 
+    and AENDTM will be date-time values. [xx-1] is the period before [xx].
+ 
+  For last period - Period subset condition: ASTDTM > AP[xx-1]EDTM
+    If AENDT < AP[xx]SDT then APEREDY = AENDT - AP[xx]SDT
+    Else if AENDT >= AP[xx]SDT then APEREDY = AENDT - AP[xx]SDT + 1
+       where [xx] is the last period. 
+             [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.    
+    AP[xx]SDT and AENDT will be date values and AP[xx-1]EDTM, AENDTM
+    will be date-time values. [xx-1] is the period before [xx].
+APERSDT APEREDT APERSTM APERETM APERSDTM and APEREDTM calculation:
+  For Period 1: 
+      If ADT <= AP01EDT: APERSDT = AP01SDT, APERSTM = AP01STM, APEREDT = AP01EDT
+                         APERETM = AP01ETM, APERSDTM = AP01SDTM, APEREDTM = AP01EDTM 
+  For Period 2 until last before period:
+      Else If AP[xx-1]EDT < ADT <= AP[xx]EDT: APERSDT = AP[xx]SDT, APEREDT = AP[xx]EDT,  
+                                              APERSTM = AP[xx]STM, APERETM = AP[xx]ETM, 
+                                              APERSDTM = AP[xx]SDTM, APEREDTM = AP[xx]EDTM
+      where [xx] has value of 2 to (number of periods - 1) incremented by 1. 
+            [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.
+  APERSTM, APERETM, APERSDTM and APEREDTM will only be collected when time 
+  is captured.
+  For the last period:
+      Else if ADT > AP[xx-1]EDT: APERSDT = AP[xx]SDT, APEREDT = AP[xx]EDT,  
+                                 APERSTM = AP[xx]STM, APERETM = AP[xx]ETM, 
+                                 APERSDTM = AP[xx]SDTM, APEREDTM = AP[xx]EDTM 
+      where [xx] is the last period. 
+            [xx-1] is the period before [xx]. Ex: If [xx] = 02 then [xx-1] = 01.
+  If time is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date-time values. 
+  If only date is collected then AP[xx]SDT, AP[xx]EDT, ADT will be date values.
+  APERSTM, APERETM, APERSDTM and APEREDTM will only be created when time 
+  is captured.
+
+Examples:
+
+%gen_tp_join_adsl(_dsnin = _dsnin
+                  ,_dsnout = _dsnin
+                  ,_trtoption = OPTION1
+                  ,_dropvars =
+                  ,_analstartdtvar=ADT
+                  ,_analstarttmvar=ATM
+                  ,_analstartdtmvar=ADTM
+                  ,_analenddtvar=
+                  ,_analendtmvar=
+                  ,_analenddtmvar=
+                  );
+  The above example creates TRTA TRTP TRTAN TRTPN APERIOD APERIODC APERSDY APEREDY APHASE APERDY
+  APERSDT APERSTM APEREDT APERETM APERSDTM and APEREDTM variables for a crossover study.
+
+%gen_tp_join_adsl(_dsnin = _dsnin
+                  ,_dsnout = _dsnin
+                  ,_trtoption = OPTION2
+                  ,_dropvars = APERSDY APEREDY
+                  ,_analstartdtvar=ASTDT
+                  ,_analstarttmvar=
+                  ,_analstartdtmvar=
+                  ,_analenddtvar= AENDT
+                  ,_analendtmvar= 
+                  ,_analenddtmvar=
+                  );
+  The above example creates TRTA TRTP TRTAN TRTPN APERIOD APERIODC APHASE APERSDT and APEREDT 
+  variables for a crossover study.
+           
+------------------------------------------------------------------------------------------
+Modification History
+------------------------------------------------------------------------------------------
+Revision 1.1  yagnas 2014/10/15 UIMS 92204 CR 92212 Initial Utility creation 
+         1.2  yagnas 2015/01/29 UIMS 93264 CR 93285 : Updated to create APER*DT/TM/DTM
+                                variables for both parallel and crossover.
+              yagnas 2016/04/18 UIMS 109544 CR 109582: Made changes related to Aphase.
+-----------------------------------------------------------------------------------------*/
+
+%macro gen_tp_join_adsl(_dsnin =             
+                       ,_dsnout =           
+                       ,_trtoption = OPTION1 
+                       ,_dropvars = 
+                       ,_analstartdtvar=
+                       ,_analstarttmvar=
+                       ,_analstartdtmvar=
+                       ,_analenddtvar=
+                       ,_analendtmvar= 
+                       ,_analenddtmvar=                     
+                       );
+
+***************************************************************************************;
+* Specification 1                                                                     *;
+*   - Initialize global and local macro variables                                     *;
+*   - Get the number of periods into a macro variable                                 *;
+*   - Check the existence of treatment time and analysis time variables               *; 
+***************************************************************************************;
+
+%global _anal_varexist _anal_missvars g_adsl_pre_lag;
+%local _trt_time _anal_time _anal_end_time _i _j _k _l _m;
+
+%if %bquote(&g_adsl_pre_lag) = %str() %then %do;
+    %let g_adsl_pre_lag = 0;
+%end;
+
+%let _trt_time=N;
+%let _anal_time=N;
+%let _anal_end_time=N;
+
+%util_num_periods;
+
+%* Get all the variables by using proc contents *;
+Proc Contents Data=&_dsnin Out=AllVars(keep=NAME) NoPrint;
+Run;
+
+proc sql noprint;
+  select 'Y' into :_trt_time
+        from allvars
+        where upcase(name) like 'TR__STM';
+quit;
+
+%if %sysfunc(compress("&_analstarttmvar")) ne "" or 
+    %sysfunc(compress("&_analstartdtmvar")) ne "" %then %do;
+  proc sql noprint;
+    select 'Y' into :_anal_time
+        from allvars
+        where upcase(name) in ("%upcase(&_analstarttmvar)", "%upcase(&_analstartdtmvar)");
+  quit;
+%end;
+
+%if %sysfunc(compress("&_analendtmvar")) ne "" or 
+    %sysfunc(compress("&_analenddtmvar")) ne "" %then %do;
+  proc sql noprint;
+    select 'Y' into :_anal_end_time
+        from allvars
+        where upcase(name) in ("%upcase(&_analendtmvar)", "%upcase(&_analenddtmvar)");
+  quit;
+%end;
+
+***************************************************************************************;
+* Specification 2                                                                     *;
+* - Create three macro variables to hold analysis period start date (datetime variable*;
+*   if time is captured), analysis period end date (datetime variable if time is      *;
+*   captured), analysis date (datetime variable if time is captured)                  *;
+* - Generate APERIOD, APERIODC, APHASE, TRTP, TRTA, TRTPN, TRTAN, APERDY, APERSDY,    *;
+*   APEREDY, APERSDT, APEREDT APERSTM, APERETM, APERSDTM and APEREDTM variables       *;
+*   as mentioned in the usage notes                                                   *;
+* - Pass the drop variables in parameter _dropvars into util_chkvars macro and get    *;
+*   the list of variables that are in the dataset that can be dropped                 *;
+* - Assign attributes to the created variables                                        *;
+***************************************************************************************;
+
+%if &_trt_time = Y and &_anal_time = Y %then %do;
+
+  %* Create new analysis start and end date/time variables that will hold the original values *;
+  %* Adjust APxxSDT/STM/SDTM and APxxEDT/ETM/EDTM  based on the lag defined in the parameter *;
+  %* g_adsl_pre_lag *;  
+  data &_dsnin;
+    set &_dsnin;
+    %do _i = 1 %to %eval(&g_prdcnt);
+        _AP%sysfunc(putn(&_i,Z2.))SDT  = AP%sysfunc(putn(&_i,Z2.))SDT;
+        _AP%sysfunc(putn(&_i,Z2.))STM  = AP%sysfunc(putn(&_i,Z2.))STM;
+        _AP%sysfunc(putn(&_i,Z2.))SDTM = AP%sysfunc(putn(&_i,Z2.))SDTM;
+        _AP%sysfunc(putn(&_i,Z2.))EDT  = AP%sysfunc(putn(&_i,Z2.))EDT;
+        _AP%sysfunc(putn(&_i,Z2.))ETM  = AP%sysfunc(putn(&_i,Z2.))ETM;
+        _AP%sysfunc(putn(&_i,Z2.))EDTM = AP%sysfunc(putn(&_i,Z2.))EDTM;               
+        %if &_i = 1 %then %do;
+            AP%sysfunc(putn(&_i,Z2.))SDTM = AP%sysfunc(putn(&_i,Z2.))SDTM;
+            AP%sysfunc(putn(&_i,Z2.))EDTM = AP%sysfunc(putn(&_i,Z2.))EDTM - hms(0,&g_adsl_pre_lag,0);            
+        %end;
+        %else %if &_i lt %eval(&g_prdcnt) %then %do;
+            AP%sysfunc(putn(&_i,Z2.))SDTM = AP%sysfunc(putn(&_i,Z2.))SDTM - hms(0,&g_adsl_pre_lag,0);
+            AP%sysfunc(putn(&_i,Z2.))EDTM = AP%sysfunc(putn(&_i,Z2.))EDTM - hms(0,&g_adsl_pre_lag,0);            
+        %end;
+        %else %if &_i = %eval(&g_prdcnt) %then %do;
+            AP%sysfunc(putn(&_i,Z2.))SDTM = AP%sysfunc(putn(&_i,Z2.))SDTM - hms(0,&g_adsl_pre_lag,0);
+            AP%sysfunc(putn(&_i,Z2.))EDTM = AP%sysfunc(putn(&_i,Z2.))EDTM;            
+        %end;        
+        AP%sysfunc(putn(&_i,Z2.))SDT = datepart(AP%sysfunc(putn(&_i,Z2.))SDTM);
+        AP%sysfunc(putn(&_i,Z2.))STM = timepart(AP%sysfunc(putn(&_i,Z2.))SDTM);
+        AP%sysfunc(putn(&_i,Z2.))EDT = datepart(AP%sysfunc(putn(&_i,Z2.))EDTM);
+        AP%sysfunc(putn(&_i,Z2.))ETM = timepart(AP%sysfunc(putn(&_i,Z2.))EDTM);            
+    %end; 
+  run;  
+    
+  %let _sdt = APSDTM;
+  %let _edt = APEDTM;  
+  %if %sysfunc(compress("&_analstartdtmvar")) = "" %then %do;
+    data &_dsnin;
+      set &_dsnin;
+      &_analstartdtvar.M = dhms(&_analstartdtvar,0,0,&_analstarttmvar); 
+    run;
+    %let _adt = &_analstartdtvar.M;
+  %end;
+  %else %do;
+     %let _adt = &_analstartdtmvar;
+  %end;
+%end;
+%else %do;
+  %let _sdt = APSDT;
+  %let _edt = APEDT;
+  %let _adt = &_analstartdtvar;
+%end;
+
+%if &_trt_time = Y and &_anal_end_time = Y and %sysfunc(compress("&_analenddtvar")) ^= "" %then %do; 
+  %if %sysfunc(compress("&_analenddtmvar")) = "" %then %do;
+    data &_dsnin;
+      set &_dsnin;
+      &_analenddtvar.M = dhms(&_analenddtvar,0,0,&_analendtmvar); 
+    run;
+    %let _aendt = &_analenddtvar.M;
+  %end;
+  %else %do;
+     %let _aendt = &_analenddtmvar;
+  %end;
+%end;
+%else %if %sysfunc(compress("&_analenddtvar")) ^= "" %then %do;
+     %let _aendt = &_analenddtvar;
+%end;
+
+
+%put Existing variables &_anal_varexist Drop &_dropvars;
+
+%* Generate APERIOD APERIODC APHASE TRTP TRTA TRTPN TRTAN APERDY APERSDY *;
+%* and APEREDY variables *;
+data _dsnin;
+  attrib APERIODC length=$20. label="Period (C)"
+         APERIOD label="Period"
+         APHASE length=$20. label="Phase"
+         TRTP length=$100. label="Planned Treatment"
+         TRTA length=$100. label="Actual Treatment" 
+         TRTPN label="Planned Treatment (N)"
+         TRTAN label="Actual Treatment (N)"
+         %if &_sdt = APSDTM %then %do; 
+           APERSTM label="Period Start Time" format=time8.
+           APERETM label="Period End Time" format=time8.
+           APERSDTM label="Period Start Date/Time" format=datetime20.
+           APEREDTM label="Period End Date/Time" format=datetime20.
+         %end; 
+         APERSDT label="Period Start Date" format=date9. 
+         APEREDT label="Period End Date" format=date9. 
+         %if %eval(&g_prdcnt) > 1 %then %do; 
+           %if %sysfunc(compress("&_analenddtvar")) ne "" %then %do;
+             APERSDY label="Relative Start Day of Period Start"
+             APEREDY label="Relative End Day of Period Start"
+           %end;
+           %else %do;
+             APERDY label="Relative Day of Period Start"
+           %end;
+         %end; 
+  ;       
+  set &_dsnin;
+  Array APSDT[*]
+  %do _i = 1 %to %eval(&g_prdcnt);
+    AP%sysfunc(putn(&_i,Z2.))SDT
+  %end;
+  ;
+  Array APEDT[*]
+  %do _i = 1 %to %eval(&g_prdcnt);
+    AP%sysfunc(putn(&_i,Z2.))EDT
+  %end;
+  ;
+  %* Create Time and Datetime arrays if time is collected or imputed;
+  %if &_trt_time = Y and &_anal_time = Y %then %do;
+    Array APSDTM[*]
+    %do _i = 1 %to %eval(&g_prdcnt);
+      AP%sysfunc(putn(&_i,Z2.))SDTM
+    %end;
+    ;
+    Array APEDTM[*]
+    %do _i = 1 %to %eval(&g_prdcnt);
+      AP%sysfunc(putn(&_i,Z2.))EDTM
+    %end;
+    ;
+  %end;
+
+  %* TRTA TRTP TRTAN TRTPN APERIOD and APERIODC Derivation *;
+  %do _j = 1 %to %eval(&g_prdcnt);
+      %if &_j = 1 %then %do;
+        %if %upcase(&_trtoption) = OPTION1 %then %do;
+          if &_sdt[&_j] <= &_adt <= &_edt[&_j] and
+                  ^missing(&_sdt[&_j]) and ^missing(&_adt) and
+                  ^missing(&_edt[&_j]) then do;
+        %end;
+        %else %if %upcase(&_trtoption) = OPTION2 %then %do;
+          if &_adt <= &_edt[&_j]  and ^missing(&_adt) and
+             ^missing(&_edt[&_j])then do;
+        %end;
+            TRTP  = TRT%sysfunc(putn(&_j,Z2.))P;
+            TRTA  = TRT%sysfunc(putn(&_j,Z2.))A;
+            TRTPN = TRT%sysfunc(putn(&_j,Z2.))PN;
+            TRTAN = TRT%sysfunc(putn(&_j,Z2.))AN;
+            APERIOD  = &_j;
+            APERIODC = "Period %sysfunc(putn(&_j,Z2.))";
+        end;
+      %end;
+      %else %if &_j ne %eval(&g_prdcnt) %then %do;
+        %if %upcase(&_trtoption) = OPTION1 %then %do;
+          else if &_sdt[&_j] <= &_adt <= &_edt[&_j] and
+                  ^missing(&_sdt[&_j]) and ^missing(&_adt) and
+                  ^missing(&_edt[&_j]) then do;
+        %end;
+        %else %if %upcase(&_trtoption) = OPTION2 %then %do;
+          else if &_edt[%eval(&_j-1)] < &_adt <= &_edt[&_j] and
+                  ^missing(&_edt[%eval(&_j-1)]) and ^missing(&_adt) and
+                  ^missing(&_edt[&_j]) then do;
+        %end;
+            TRTP  = TRT%sysfunc(putn(&_j,Z2.))P;
+            TRTA  = TRT%sysfunc(putn(&_j,Z2.))A;
+            TRTPN = TRT%sysfunc(putn(&_j,Z2.))PN;
+            TRTAN = TRT%sysfunc(putn(&_j,Z2.))AN;
+            APERIOD  = &_j;
+            APERIODC = "Period %sysfunc(putn(&_j,Z2.))";
+        end;
+      %end;
+      %else %if &_j = %eval(&g_prdcnt) %then %do;
+        %if %upcase(&_trtoption) = OPTION1 %then %do;
+          else if &_sdt[&_j] <= &_adt <= &_edt[&_j] and
+                  ^missing(&_sdt[&_j]) and ^missing(&_adt) and
+                  ^missing(&_edt[&_j]) then do;
+        %end;
+        %else %if %upcase(&_trtoption) = OPTION2 %then %do;
+          else if &_adt > &_edt[%eval(&_j-1)] and ^missing(&_adt) and
+                  ^missing(&_edt[%eval(&_j-1)]) then do;
+        %end;
+            TRTP  = TRT%sysfunc(putn(&_j,Z2.))P;
+            TRTA  = TRT%sysfunc(putn(&_j,Z2.))A;
+            TRTPN = TRT%sysfunc(putn(&_j,Z2.))PN;
+            TRTAN = TRT%sysfunc(putn(&_j,Z2.))AN;
+            APERIOD  = &_j;
+            APERIODC = "Period %sysfunc(putn(&_j,Z2.))";
+        end;
+      %end;
+  %end;
+
+  %* Aphase derivation *;
+  %do _l = 1 %to %eval(&g_prdcnt);
+      %if &_l = 1 %then %do;
+        if &_adt <= &_sdt[&_l] and ^missing(&_adt) and ^missing(&_sdt[&_l]) then do;
+           Aphase = "PRE-TREATMENT";
+        end;
+        else if &_sdt[&_l] < &_adt <= &_edt[&_l] and ^missing(&_adt)
+             and ^missing(&_sdt[&_l]) and ^missing(&_edt[&_l]) then do;
+           Aphase = "TREATMENT "||"%sysfunc(putn(&_l,Z2.))";
+        end;
+        %if &g_prdcnt = 1 %then %do;
+            else if &_adt > &_edt[&_l] and ^missing(&_adt)
+                 and ^missing(&_edt[&_l]) then do;
+              Aphase = "FOLLOW-UP";
+            end;
+        %end;
+      %end;
+      %else %if &_l lt %eval(&g_prdcnt) %then %do;
+        else if &_edt[%eval(&_l-1)] < &_adt <= &_sdt[&_l] and 
+                ^missing(&_edt[%eval(&_l-1)]) and ^missing(&_adt) and 
+                ^missing(&_sdt[&_l]) then do;
+             Aphase = "OFFDRUG "||"%sysfunc(putn(%eval(&_l-1),Z2.))";
+        end;
+        else if &_sdt[&_l] < &_adt <= &_edt[&_l] and ^missing(&_adt)
+             and ^missing(&_sdt[&_l]) and ^missing(&_edt[&_l]) then do;
+           Aphase = "TREATMENT "||"%sysfunc(putn(&_l,Z2.))";
+        end;
+
+      %end;
+      %else %if &_l = %eval(&g_prdcnt) %then %do;
+        else if &_edt[%eval(&_l-1)] < &_adt <= &_sdt[&_l] and 
+                ^missing(&_edt[%eval(&_l-1)]) and ^missing(&_adt) and 
+                ^missing(&_sdt[&_l]) then do;
+             Aphase = "OFFDRUG "||"%sysfunc(putn(%eval(&_l-1),Z2.))";
+        end;
+        else if &_sdt[&_l] < &_adt <= &_edt[&_l] and ^missing(&_adt)
+             and ^missing(&_sdt[&_l]) and ^missing(&_edt[&_l]) then do;
+               Aphase = "TREATMENT "||"%sysfunc(putn(&_l,Z2.))";
+        end;
+        else if &_adt > &_edt[&_l] and 
+             ^missing(&_adt) and ^missing(&_edt[&_l]) then do;
+                Aphase = "FOLLOW-UP";
+        end;
+      %end;
+  %end;
+
+  %* APERDY APERSDY APEREDY Calculation *;
+  %* Only for Crossover study *;
+  %if %eval(&g_prdcnt) > 1 %then %do;
+    %if %sysfunc(compress("&_analenddtvar")) ne "" %then %do;
+      %do _m = 1 %to %eval(&g_prdcnt);
+        %if &_m = 1 %then %do;
+          if &_adt <= &_edt[&_m] and ^missing(&_adt) and 
+             ^missing(&_edt[&_m]) then do;
+               if &_analstartdtvar  < APSDT[&_m] then 
+                  APERSDY =&_analstartdtvar  - APSDT[&_m];
+               else if &_analstartdtvar  >= APSDT[&_m] then 
+                  APERSDY = &_analstartdtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+        %else %if &_m ne %eval(&g_prdcnt) %then %do;
+          else if &_edt[%eval(&_m - 1)] < &_adt <= &_edt[&_m] and 
+               ^missing(&_adt) and ^missing(&_edt[&_m]) and 
+               ^missing(&_edt[%eval(&_m - 1)]) then do;
+                  if &_analstartdtvar  < APSDT[&_m] then 
+                     APERSDY = &_analstartdtvar  - APSDT[&_m];
+                  else if &_analstartdtvar >= APSDT[&_m] then 
+                     APERSDY = &_analstartdtvar  - APSDT[&_m] + 1;
+          end;
+        %end;
+        %else %if &_m = %eval(&g_prdcnt) %then %do;
+          else if &_adt > &_edt[%eval(&_m - 1)] and 
+               ^missing(&_adt) and ^missing(&_edt[%eval(&_m - 1)]) 
+               then do;
+                 if &_analstartdtvar  < APSDT[&_m] then 
+                    APERSDY = &_analstartdtvar - APSDT[&_m];
+                 else if &_analstartdtvar >= APSDT[&_m] then 
+                    APERSDY = &_analstartdtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+      %end;
+      %do _m = 1 %to %eval(&g_prdcnt);
+        %if &_m = 1 %then %do;
+          if &_aendt <= &_edt[&_m] and ^missing(&_aendt) and 
+             ^missing(&_edt[&_m]) then do;
+             if &_analenddtvar < APSDT[&_m] then 
+                APEREDY =&_analenddtvar  - APSDT[&_m];
+             else if &_analenddtvar >= APSDT[&_m] then 
+                APEREDY = &_analenddtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+        %else %if &_m ne %eval(&g_prdcnt) %then %do;
+          else if &_edt[%eval(&_m - 1)] < &_aendt <= &_edt[&_m] and 
+                  ^missing(&_aendt) and ^missing(&_edt[&_m]) and 
+                  ^missing(&_edt[%eval(&_m - 1)]) then do;
+                    if &_analenddtvar < APSDT[&_m] then 
+                       APEREDY = &_analenddtvar - APSDT[&_m];
+                    else if &_analenddtvar >= APSDT[&_m] then 
+                       APEREDY = &_analenddtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+        %else %if &_m = %eval(&g_prdcnt) %then %do;
+          else if &_aendt > &_edt[%eval(&_m - 1)] and 
+                  ^missing(&_aendt) and ^missing(&_edt[%eval(&_m - 1)]) then do;
+                    if &_analenddtvar < APSDT[&_m] then 
+                       APEREDY = &_analenddtvar - APSDT[&_m];
+                    else if &_analenddtvar >= APSDT[&_m] then 
+                       APEREDY = &_analenddtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+      %end;
+    %end;
+    %else %do;
+      %do _m = 1 %to %eval(&g_prdcnt);
+        %if &_m = 1 %then %do;
+          if &_adt <= &_edt[&_m] and ^missing(&_adt) 
+             and ^missing(&_edt[&_m]) then do;
+               if &_analstartdtvar < APSDT[&_m] then 
+                  APERDY = &_analstartdtvar - APSDT[&_m];
+               else if &_analstartdtvar >= APSDT[&_m] then 
+                  APERDY = &_analstartdtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+        %else %if &_m ne %eval(&g_prdcnt) %then %do;
+          else if &_edt[%eval(&_m - 1)] < &_adt <= &_edt[&_m] and 
+               ^missing(&_adt) and ^missing(&_edt[&_m]) and 
+               ^missing(&_edt[%eval(&_m - 1)]) then do;
+                 if &_analstartdtvar < APSDT[&_m] then 
+                    APERDY = &_analstartdtvar - APSDT[&_m];
+                 else if &_analstartdtvar >= APSDT[&_m] then 
+                    APERDY = &_analstartdtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+        %else %if &_m = %eval(&g_prdcnt) %then %do;
+          else if &_adt > &_edt[%eval(&_m - 1)] and 
+               ^missing(&_adt) and ^missing(&_edt[%eval(&_m - 1)]) then do;
+             if &_analstartdtvar < APSDT[&_m] and ^missing(APSDT[&_m]) then 
+                APERDY = &_analstartdtvar - APSDT[&_m];
+             else if &_analstartdtvar >= APSDT[&_m] and ^missing(APSDT[&_m]) then 
+                APERDY = &_analstartdtvar - APSDT[&_m] + 1;
+          end;
+        %end;
+      %end;
+    %end;
+  %end;
+
+  %*APERSDT APEREDT APERSTM APERETM APERSDTM and APEREDTM Derivation *;
+
+  %do _j = 1 %to %eval(&g_prdcnt);
+    %if &_j = 1 %then %do;
+      if &_adt <= &_edt[&_j]  and ^missing(&_adt) and
+         ^missing(&_edt[&_j])then do;
+        APERSDT  = AP%sysfunc(putn(&_j,Z2.))SDT;
+        APEREDT  = AP%sysfunc(putn(&_j,Z2.))EDT;
+        %if &_sdt = APSDTM %then %do;
+          APERSTM  = AP%sysfunc(putn(&_j,Z2.))STM;
+          APERETM  = AP%sysfunc(putn(&_j,Z2.))ETM;
+          APERSDTM = AP%sysfunc(putn(&_j,Z2.))SDTM;
+          APEREDTM = AP%sysfunc(putn(&_j,Z2.))EDTM;
+        %end;
+      end;
+    %end;
+    %else %if &_j ne %eval(&g_prdcnt) %then %do;
+      else if &_edt[%eval(&_j-1)] < &_adt <= &_edt[&_j] and
+              ^missing(&_edt[%eval(&_j-1)]) and ^missing(&_adt) and
+              ^missing(&_edt[&_j]) then do;
+        APERSDT  = AP%sysfunc(putn(&_j,Z2.))SDT;
+        APEREDT  = AP%sysfunc(putn(&_j,Z2.))EDT;
+        %if &_sdt = APSDTM %then %do;
+          APERSTM  = AP%sysfunc(putn(&_j,Z2.))STM;
+          APERETM  = AP%sysfunc(putn(&_j,Z2.))ETM;
+          APERSDTM = AP%sysfunc(putn(&_j,Z2.))SDTM;
+          APEREDTM = AP%sysfunc(putn(&_j,Z2.))EDTM;
+        %end;
+      end;
+    %end;
+    %else %if &_j = %eval(&g_prdcnt) %then %do;
+      else if &_adt > &_edt[%eval(&_j-1)] and ^missing(&_adt) and
+              ^missing(&_edt[%eval(&_j-1)]) then do;
+        APERSDT  = AP%sysfunc(putn(&_j,Z2.))SDT;
+        APEREDT  = AP%sysfunc(putn(&_j,Z2.))EDT;
+        %if &_sdt = APSDTM %then %do;
+          APERSTM  = AP%sysfunc(putn(&_j,Z2.))STM;
+          APERETM  = AP%sysfunc(putn(&_j,Z2.))ETM;
+          APERSDTM = AP%sysfunc(putn(&_j,Z2.))SDTM;
+          APEREDTM = AP%sysfunc(putn(&_j,Z2.))EDTM;
+        %end;
+      end;
+    %end;
+  %end;
+
+run;
+
+%if %sysfunc(compress("&_dropvars")) ne "" %then %do;
+  %util_chkvars(
+                _dsnin   = _dsnin,
+                _varlist = &_dropvars APERSDY APEREDY,
+                _varexist= _anal_varexist,
+                _missvar = _anal_missvars
+               );
+%end;
+
+%* Drop the variables that are not needed and populate the APxxSDT/STM/SDTM and APxxEDT/ETM/EDTM *;
+%* variables as in the ADSL dataset. *;
+data &_dsnout;
+     %if &_trt_time = Y and &_anal_time = Y %then %do;
+       attrib
+         %do _i = 1 %to %eval(&g_prdcnt);
+           AP%sysfunc(putn(&_i,Z2.))SDT format=date9. label = "Period %sysfunc(putn(&_i,Z2.)) Start Date"
+           AP%sysfunc(putn(&_i,Z2.))EDT format=date9. label = "Period %sysfunc(putn(&_i,Z2.)) End Date" 
+           AP%sysfunc(putn(&_i,Z2.))STM format=time8. label = "Period %sysfunc(putn(&_i,Z2.)) Start Time"
+           AP%sysfunc(putn(&_i,Z2.))ETM format=time8. label = "Period %sysfunc(putn(&_i,Z2.)) End Time"
+           AP%sysfunc(putn(&_i,Z2.))SDTM format=datetime20. label = "Period %sysfunc(putn(&_i,Z2.)) Start Datetime"
+           AP%sysfunc(putn(&_i,Z2.))EDTM format=datetime20. label = "Period %sysfunc(putn(&_i,Z2.)) End Date/Time"                
+         %end;;
+      %end;     
+      set _dsnin(drop=
+                   %if &_trt_time = Y and &_anal_time = Y %then %do; 
+                       %if %sysfunc(compress("&_analstartdtmvar")) = "" %then %do;
+                           &_analstartdtvar.M
+                       %end; 
+                       %do _i = 1 %to %eval(&g_prdcnt);
+                           AP%sysfunc(putn(&_i,Z2.))SDT AP%sysfunc(putn(&_i,Z2.))STM AP%sysfunc(putn(&_i,Z2.))SDTM
+                           AP%sysfunc(putn(&_i,Z2.))EDT AP%sysfunc(putn(&_i,Z2.))ETM AP%sysfunc(putn(&_i,Z2.))EDTM 
+                       %end;
+                   %end;
+                   %if %sysfunc(compress("&_anal_varexist")) ne "" %then %do;
+                       &_anal_varexist
+                   %end;
+                   %if &_trt_time = Y and &_anal_time = Y %then %do;
+                     rename = (
+                               %do _i = 1 %to %eval(&g_prdcnt);
+                                   _AP%sysfunc(putn(&_i,Z2.))SDT = AP%sysfunc(putn(&_i,Z2.))SDT
+                                   _AP%sysfunc(putn(&_i,Z2.))STM = AP%sysfunc(putn(&_i,Z2.))STM
+                                   _AP%sysfunc(putn(&_i,Z2.))SDTM = AP%sysfunc(putn(&_i,Z2.))SDTM
+                                   _AP%sysfunc(putn(&_i,Z2.))EDT = AP%sysfunc(putn(&_i,Z2.))EDT
+                                   _AP%sysfunc(putn(&_i,Z2.))ETM = AP%sysfunc(putn(&_i,Z2.))ETM
+                                   _AP%sysfunc(putn(&_i,Z2.))EDTM = AP%sysfunc(putn(&_i,Z2.))EDTM                      
+                               %end;
+                              )  
+                   %end;
+                );
+run;
+
+**************************************************************************************;
+*  Specification 3: Delete all temporary local datasets                              *;
+**************************************************************************************;
+
+proc datasets library=work;
+  delete Allvars ;
+quit;
+
+%mend gen_tp_join_adsl;
